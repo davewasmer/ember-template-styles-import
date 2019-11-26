@@ -77,7 +77,8 @@
   "ember-addon": {
     "configPath": "tests/dummy/config",
     "before": [
-      "ember-cli-htmlbars"
+      "ember-cli-htmlbars",
+      "ember-template-component-import"
     ]
   }
 }

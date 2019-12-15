@@ -10,6 +10,8 @@ const stew = require('broccoli-stew');
 const postcssScss = require('postcss-scss');
 const { hash } = require('spark-md5');
 
+const extension = 'scoped.scss';
+
 let rewriterPlugin = postcss.plugin('postcss-importable', ({ filename, deep, registerDefinedClass }) => {
   return (css) => {
     if (deep) {
@@ -39,8 +41,8 @@ class StylesRewriter extends BroccoliFilter {
   constructor(inputNode, options = {}) {
     super(inputNode, { persist: true, ...options });
     this.options = options;
-    this.extensions = [ 'scoped.scss' ];
-    this.targetExtension = 'scoped.scss';
+    this.extensions = [ extension ];
+    this.targetExtension = extension;
   }
 
   baseDir() {
@@ -132,7 +134,7 @@ module.exports = {
   },
 
   _scopedStyles(tree, namespace, outputFile = 'pod-styles.scss') {
-    tree = new Funnel(tree, { include: [ `**/*.scoped.scss` ]});
+    tree = new Funnel(tree, { include: [ `**/*.${extension}` ]});
     tree = new StylesRewriter(tree, {
       namespace,
       registerDefinedClass: this.registerDefinedClass.bind(this)
@@ -145,7 +147,7 @@ module.exports = {
     if (type === 'self') {
       return;
     }
-
+    let project = this.project;
     let registerUsedClass = this.registerUsedClass.bind(this);
 
     registry.add('htmlbars-ast-plugin', {
@@ -156,11 +158,24 @@ module.exports = {
         constructor(env) {
           this.moduleName = env.meta.moduleName;
           this.importedStylesheets = {};
+          let transformer =  project.templateImportTransformers[extension];
+
+          if (transformer && transformer.imports && transformer.imports.length) {
+            let importInfos = transformer.imports.filter(imp => imp.sourceRelativePath === this.moduleName);
+
+            importInfos.forEach(importInfo => {
+              let importPath = importInfo.importPath
+              let localName = importInfo.localName;
+              let importedModuleName = path.isAbsolute(importPath) ? importPath.slice(1) : path.join(path.dirname(this.moduleName), importPath);
+  
+              this.importedStylesheets[localName] = importedModuleName;
+            });
+          }
         }
 
         transform(ast) {
           let walker = new this.syntax.Walker();
-          this.handleImportStatements(walker, ast);
+          //this.handleImportStatements(walker, ast);
           this.handleImportedStyles(walker, ast);
           return ast;
         }

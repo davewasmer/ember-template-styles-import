@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "description": "The default blueprint for ember-cli addons.",
   "keywords": [
-    "ember-addon"
+    "ember-addon",
+    "ember-template-imports-addon"
   ],
   "repository": "",
   "license": "MIT",
@@ -76,8 +77,9 @@
   },
   "ember-addon": {
     "configPath": "tests/dummy/config",
-    "before": [
-      "ember-cli-htmlbars"
-    ]
+    "after": "ember-template-component-import"
+  },
+  "templateImports": {
+    "extension": "scoped.scss"
   }
 }

@@ -79,6 +79,7 @@ function isDummyAppBuild(self) {
 }
 
 function generateScopedName(name, relativePath) {
+  relativePath = relativePath.replace(/\\/g, '/');
   let hashKey = `${ name }--${ relativePath }`;
   return `${ name }_${ hash(hashKey).slice(0, 5) }`;
 }

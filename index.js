@@ -111,6 +111,10 @@ class TemplateStylesImportProcessor extends BroccoliFilter {
   baseDir() {
     return __dirname;
   }
+  
+  cacheKeyProcessString(string, relativePath) {
+    return md5Hex([string, relativePath]);
+  }
 
   processString(contents, relativePath) {
     let imports = [];

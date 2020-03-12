@@ -75,7 +75,6 @@ function isDummyAppBuild(self) {
 }
 
 function generateScopedName(name, relativePath) {
-  console.log('generateScopedName', name, relativePath);
   relativePath = relativePath.replace(/\\/g, '/');
   let hashKey = `${ name }--${ relativePath }`;
   return `${ name }_${ hash(hashKey).slice(0, 5) }`;
@@ -122,7 +121,6 @@ class TemplateStylesImportProcessor extends BroccoliFilter {
         importPath = path.resolve(relativePath, '..', importPath).split(path.sep).join('/');
         importPath = path.relative(this.options.root, importPath).split(path.sep).join('/');
       }
-      console.log('import style', { localName, importPath, isLocalNameValid: isValidVariableName(localName) });
       imports.push({ localName, importPath, isLocalNameValid: isValidVariableName(localName) });
       return '';
     });
@@ -146,15 +144,11 @@ class TemplateStylesImportProcessor extends BroccoliFilter {
         }
       }
       if (localName[0].toLowerCase() === localName[0]) {
-        const styleRegex = localName + '\\.([^\\} ]+)';
-        console.log('import style styleRegex', styleRegex);
-        console.log('import style styleRegex', new RegExp('{{[^\\}]*' + styleRegex + '[^\\}]*}}', "g"));
+        const styleRegex = localName + '\\.([^\\} )]+)';
         rewrittenContents = rewrittenContents.replace(new RegExp('{{[^\\}]*' + styleRegex + '[^\\}]*}}', "g"), (mustache, styleClass) => {
-          console.log('rewriting style', mustache);
           const replaced = mustache.replace(new RegExp('([= {])' + styleRegex + '([^}]*}})', 'g'), (_, before, style, after) => {
-            return before + generateScopedName(styleClass, importPath) + after;
+            return before + '"' + generateScopedName(styleClass, importPath) + '"' + after;
           });
-          console.log('rewriting style replaced', replaced);
           return replaced;
         });
       }

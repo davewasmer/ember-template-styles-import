@@ -10,13 +10,12 @@ const stew = require('broccoli-stew');
 const postcssScss = require('postcss-scss');
 const { hash } = require('spark-md5');
 
-let rewriterPlugin = postcss.plugin('postcss-importable', ({ filename, deep, registerDefinedClass }) => {
+let rewriterPlugin = postcss.plugin('postcss-importable', ({ filename, deep }) => {
   return (css) => {
     if (deep) {
       css.walkRules((rule) => {
         rule.selectors = rule.selectors.map((selector) => {
           let name = selector.slice(1);
-          registerDefinedClass(filename, name)
           return '.' + generateScopedName(name, filename);
         });
       });
@@ -25,7 +24,6 @@ let rewriterPlugin = postcss.plugin('postcss-importable', ({ filename, deep, reg
         if (node.type === 'rule') {
           node.selectors = node.selectors.map((selector) => {
             let name = selector.slice(1);
-            registerDefinedClass(filename, name)
             return '.' + generateScopedName(name, filename);
           });
         }
@@ -51,7 +49,6 @@ class StylesRewriter extends BroccoliFilter {
     let namespace = this.options.namespace;
     return postcss([
       rewriterPlugin({
-        registerDefinedClass: this.options.registerDefinedClass,
         filename: `${ namespace }/${ relativePath }`,
         deep: false
       })
@@ -63,7 +60,6 @@ class StylesRewriter extends BroccoliFilter {
     })
     .then((results) => results.css);
   }
-
 }
 
 function isApp(appOrAddon) {
@@ -79,27 +75,99 @@ function isDummyAppBuild(self) {
 }
 
 function generateScopedName(name, relativePath) {
+  console.log('generateScopedName', name, relativePath);
   relativePath = relativePath.replace(/\\/g, '/');
   let hashKey = `${ name }--${ relativePath }`;
   return `${ name }_${ hash(hashKey).slice(0, 5) }`;
 }
 
+
+const IMPORT_PATTERN = /\{\{\s*import\s+([^\s]+)\s+from\s+['"]([^'"]+)['"]\s*\}\}/gi;
+
+function isValidVariableName(name) {
+  return /^[A-Za-z0-9.-]+$/.test(name);
+}
+
+
+class TemplateStylesImportProcessor extends BroccoliFilter {
+
+  constructor(inputNode, options = {}) {
+    if (!options.hasOwnProperty('persist')) {
+      options.persist = true;
+    }
+
+    super(inputNode, {
+      annotation: options.annotation,
+      persist: options.persist
+    });
+
+    this.options = options;
+    this._console = this.options.console || console;
+
+    this.extensions = ['hbs', 'handlebars'];
+    this.targetExtension = 'hbs';
+  }
+
+  baseDir() {
+    return __dirname;
+  }
+
+  processString(contents, relativePath) {
+    let imports = [];
+    let rewrittenContents = contents.replace(IMPORT_PATTERN, (_, localName, importPath) => {
+      if (!importPath.endsWith('.scoped.scss')) { // .scss or other extensions
+        return _;
+      }
+      if (importPath.startsWith('.')) {
+        importPath = path.resolve(relativePath, '..', importPath).split(path.sep).join('/');
+        importPath = path.relative(this.options.root, importPath).split(path.sep).join('/');
+      }
+      console.log('import style', { localName, importPath, isLocalNameValid: isValidVariableName(localName) });
+      imports.push({ localName, importPath, isLocalNameValid: isValidVariableName(localName) });
+      return '';
+    });
+
+    let header = imports.map(({ importPath, localName, isLocalNameValid, dynamic }) => {
+      const warnPrefix = 'ember-template-styles-import: ';
+      const abstractWarn = `${warnPrefix} Allowed import variable names - camelCased strings, like: fooBar, tomDale`;
+      const helperWarn = `
+        ${warnPrefix}Warning!
+        in file: "${relativePath}"
+        subject: "${localName}" is not allowed as Variable name for styles import.`;
+      const warn = isLocalNameValid ? '' : `
+        <pre data-test-name="${localName}">${helperWarn}</pre>
+        <pre data-test-global-warn="${localName}">${abstractWarn}</pre>
+      `;
+      if (!isLocalNameValid) {
+        this._console.log(helperWarn);
+        if (relativePath !== 'dummy/pods/application/template.hbs') {
+          // don't throw on 'dummy/pods/application/template.hbs' (test template)
+          throw new Error(helperWarn);
+        }
+      }
+      if (localName[0].toLowerCase() === localName[0]) {
+        const styleRegex = localName + '\\.([^\\} ]+)';
+        console.log('import style styleRegex', styleRegex);
+        console.log('import style styleRegex', new RegExp('{{[^\\}]*' + styleRegex + '[^\\}]*}}', "g"));
+        rewrittenContents = rewrittenContents.replace(new RegExp('{{[^\\}]*' + styleRegex + '[^\\}]*}}', "g"), (mustache, styleClass) => {
+          console.log('rewriting style', mustache);
+          const replaced = mustache.replace(new RegExp('([= {])' + styleRegex + '([^}]*}})', 'g'), (_, before, style, after) => {
+            return before + generateScopedName(styleClass, importPath) + after;
+          });
+          console.log('rewriting style replaced', replaced);
+          return replaced;
+        });
+      }
+      return warn;
+    }).join('');
+
+    return header + rewrittenContents + ' ';
+  }
+
+}
+
 module.exports = {
-  name: require('./package').name,
-
-  registerDefinedClass(file, name) {
-    if (!this.definedClasses.has(file)) {
-      this.definedClasses.set(file, new Set());
-    }
-    this.definedClasses.get(file).add(name);
-  },
-
-  registerUsedClass(file, name) {
-    if (!this.usedClasses.has(file)) {
-      this.usedClasses.set(file, new Set());
-    }
-    this.usedClasses.get(file).add(name);
-  },
+  name: require("./package").name,
 
   included(includer) {
     this.includer = includer;
@@ -138,132 +206,39 @@ module.exports = {
   _scopedStyles(tree, namespace, outputFile = 'pod-styles.scss') {
     tree = new Funnel(tree, { include: [ `**/*.scoped.scss` ]});
     tree = new StylesRewriter(tree, {
-      namespace,
-      registerDefinedClass: this.registerDefinedClass.bind(this)
+      namespace
     });
     tree = new Concat(tree, { allowNone: true, outputFile });
     return tree;
   },
 
   setupPreprocessorRegistry(type, registry) {
-    if (type === 'self') {
-      return;
+    // this is called before init, so, we need to check podModulePrefix later (in toTree)
+    let componentsRoot = null;
+    const projectConfig = this.project.config();
+    const podModulePrefix = projectConfig.podModulePrefix;
+
+    // by default `ember g component foo-bar --pod`
+    // will create app/components/foo-bar/{component.js,template.hbs}
+    // so, we can handle this case and just fallback to 'app/components'
+
+    if (podModulePrefix === undefined) {
+      componentsRoot = path.join(this.project.root, 'app', 'components');
+    } else {
+      componentsRoot = path.join(this.project.root, podModulePrefix);
     }
 
-    let registerUsedClass = this.registerUsedClass.bind(this);
-
-    registry.add('htmlbars-ast-plugin', {
-      name: 'styles-transform',
-      baseDir() { return __dirname },
-      plugin: class {
-
-        constructor(env) {
-          this.moduleName = env.meta.moduleName;
-          this.importedStylesheets = {};
-        }
-
-        transform(ast) {
-          let walker = new this.syntax.Walker();
-          this.handleImportStatements(walker, ast);
-          this.handleImportedStyles(walker, ast);
-          return ast;
-        }
-
-        handleImportStatements(walker, ast) {
-          walker.visit(ast, (node) => {
-            let isImportStatement =
-              node.type === 'MustacheStatement'
-              && node.path.type === 'PathExpression'
-              && node.path.original === 'import';
-
-            if (isImportStatement) {
-              let importPath = node.params[2].value;
-              let localName = node.params[0].original;
-              let importedModuleName = path.isAbsolute(importPath) ? importPath.slice(1) : path.join(path.dirname(this.moduleName), importPath);
-
-              this.importedStylesheets[localName] = importedModuleName;
-
-              let comment = this.syntax.builders.comment('imported styles');
-              this.transformNode(node, comment);
-            }
-          });
-        }
-
-        handleImportedStyles(walker, ast) {
-          walker.visit(ast, (node) => {
-            if (node.type === 'ElementNode') {
-              let classAttr = node.attributes.find((a) => a.name === 'class');
-              if (classAttr) {
-                if (classAttr.value.type === 'MustacheStatement') {
-                  this.rewriteMustacheStatement(classAttr.value);
-                } else if (classAttr.value.type === 'ConcatStatement') {
-                  let dynamicParts = classAttr.value.parts.filter((part) => part.type === 'MustacheStatement');
-                  dynamicParts.forEach((part) => {
-                    this.rewriteMustacheStatement(part);
-                  });
-                }
-              }
-            }
-          });
-        }
-
-        rewriteMustacheStatement(statement) {
-          let rootObjectReferenced = statement.path.parts[0];
-          let importedStylesheetPath = this.importedStylesheets[rootObjectReferenced];
-          if (importedStylesheetPath) {
-            let importedClass = statement.path.parts[1];
-            let rewrittenClass = generateScopedName(importedClass, importedStylesheetPath);
-            let string = this.syntax.builders.text(rewrittenClass);
-            registerUsedClass(importedStylesheetPath, importedClass);
-            this.transformNode(statement, string);
-          }
-        }
-
-        transformNode(node, target) {
-          Object.assign(node, target);
-          Object.keys(node).forEach((key) => {
-            if (!target[key]) {
-              delete node[key];
-            }
-          });
-        }
-
+    registry.add('template', {
+      name: 'ember-template-styles-import',
+      ext: 'hbs',
+      toTree: (tree) => {
+        tree = new TemplateStylesImportProcessor(tree, { root: componentsRoot });
+        return tree;
       }
     });
-  },
 
-  postBuild() {
-    return;
-    // if (this.definedClasses.size > 0) {
-    //   // console.warn(`Available imported stylesheets:\n  ${ [ ...this.definedClasses.keys() ].join('\n  ') }`)
-    // }
-    // if (this.definedClasses.size > 0 || this.usedClasses.size > 0) {
-    //   this.definedClasses.forEach((definedClasses, file) => {
-    //     let usedClasses = this.usedClasses.get(file);
-    //     if (!usedClasses) {
-    //       // eslint-disable-next-line no-console
-    //       console.warn(`Warning: Unused CSS. It looks like you defined some scoped styles in ${ file } but you didn't use them anywhere.`);
-    //       return;
-    //     }
-    //     let unusedClasses = difference(definedClasses, usedClasses);
-    //     unusedClasses.forEach((className) => {
-    //       // eslint-disable-next-line no-console
-    //       console.warn(`Warning: Unused CSS. It looks like you defined a "${ className }" class in ${ file } but you didn't use it anywhere.`);
-    //     })
-    //     let missingClasses = difference(usedClasses, definedClasses);
-    //     missingClasses.forEach((className) => {
-    //       // eslint-disable-next-line no-console
-    //       console.warn(`Warning: Missing CSS. It looks like you try to use "${ className }" class imported from ${ file } in your templates, but that file doesn't define a CSS class with that name.`);
-    //     })
-    //   });
-    //   this.usedClasses.forEach((usedClasses, file) => {
-    //     let definedClasses = this.definedClasses.get(file);
-    //     if (!definedClasses) {
-    //       // eslint-disable-next-line no-console
-    //       console.warn(`Warning: Missing CSS. It looks like you tried to import styles from ${ file }, but that file doesn't exist`);
-    //     }
-    //   });
-    // }
+    if (type === "parent") {
+      this.parentRegistry = registry;
+    }
   }
-
 };

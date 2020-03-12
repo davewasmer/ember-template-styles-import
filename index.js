@@ -41,6 +41,10 @@ class StylesRewriter extends BroccoliFilter {
     this.extensions = [ 'scoped.scss' ];
     this.targetExtension = 'scoped.scss';
   }
+  
+  cacheKeyProcessString(string, relativePath) {
+    return md5Hex([require('./package').version, string, relativePath]);
+  }
 
   baseDir() {
     return __dirname;

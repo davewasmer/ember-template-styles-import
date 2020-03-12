@@ -111,17 +111,20 @@ module.exports = {
     if (isAddon(this.parent)) {
       let original = this.parent.treeForStyles || ((t) => t);
       let self = this;
-      this.parent.treeForStyles = function(stylesInput = path.join(this.root, 'addon/styles')) {
+      this.parent.treeForStyles = function(stylesInput = path.join(this.root, this.treePaths['addon-styles'])) {
         let originalOutput = original.call(this, stylesInput);
-        let scopedOutput = self._scopedStyles(path.join(this.root, 'addon'), this.name);
-        originalOutput = new Funnel(originalOutput, { srcDir: 'app/styles' });
-        return stew.mv(new Merge([ originalOutput, scopedOutput ]), this.name);
+        let scopedOutput = self._scopedStyles(path.join(this.root, this.treePaths.addon), this.name);
+        originalOutput = new Funnel(originalOutput, { srcDir: this.treePaths.styles });
+        return stew.mv(new Merge([ originalOutput, scopedOutput ]), this.treePaths.styles + '/' + this.name);
       }
     }
   },
 
-  treeForStyles() {
+  treeForStyles(tree) {
     let trees = [];
+    if (tree) {
+      trees.push(tree);
+    }
     if (isApp(this.parent)) {
       trees.push(this._scopedStyles(path.join(this.parent.root, 'app'), this.parent.name()));
     }

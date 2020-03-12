@@ -1,6 +1,7 @@
 'use strict';
 /* eslint-env node */
 const path = require('path');
+const md5Hex = require('md5-hex');
 const BroccoliFilter = require('broccoli-persistent-filter');
 const Merge = require('broccoli-merge-trees');
 const Concat = require('broccoli-concat');

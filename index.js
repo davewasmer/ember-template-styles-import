@@ -118,7 +118,7 @@ class TemplateStylesImportProcessor extends BroccoliFilter {
   }
   
   cacheKeyProcessString(string, relativePath) {
-    return md5Hex([string, relativePath]);
+    return md5Hex([require('./package').version, string, relativePath]);
   }
 
   processString(contents, relativePath) {

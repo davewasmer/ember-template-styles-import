@@ -35,7 +35,7 @@
     "dedent": "^0.7.0",
     "ember-cli-babel": "^7.1.2",
     "ember-cli-htmlbars": "^3.0.0",
-    "lodash": "^4.17.11",
+    "lodash": "^4.17.19",
     "md5-hex": "^2.0.0",
     "postcss": "^7.0.14",
     "postcss-scss": "^2.0.0",
